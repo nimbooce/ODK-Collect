@@ -285,7 +285,7 @@ public class InstanceProvider extends ContentProvider {
                 		do {
 		                    String instanceFile = del.getString(del.getColumnIndex(InstanceColumns.INSTANCE_FILE_PATH));
 		                    Collect.getInstance().getActivityLogger().logAction(this, "delete", instanceFile);
-		                    File instanceDir = (new File(instanceFile)).getParentFile();
+		                    File instanceDir = getParent(instanceFile);
 		                    deleteAllFilesInDirectory(instanceDir);
                 		} while (del.moveToNext());
 	                }
@@ -308,7 +308,7 @@ public class InstanceProvider extends ContentProvider {
                 		do {
 		                    String instanceFile = c.getString(c.getColumnIndex(InstanceColumns.INSTANCE_FILE_PATH));
 		                    Collect.getInstance().getActivityLogger().logAction(this, "delete", instanceFile);
-		                    File instanceDir = (new File(instanceFile)).getParentFile();
+		                    File instanceDir = getParent(instanceFile);
 		                    deleteAllFilesInDirectory(instanceDir);
                 		} while (c.moveToNext());
 	                }
@@ -386,6 +386,20 @@ public class InstanceProvider extends ContentProvider {
 
         getContext().getContentResolver().notifyChange(uri, null);
         return count;
+    }
+
+    /**
+     * Returns the parent path for the given path.
+     *
+     * e.g: "/foo/bar/baz.txt" would return "/foo/bar"
+     *
+     * We operate on Strings to provide flexibility for
+     * child classes to use file storage mechanisms
+     * not compatible with {@link java.io.File}
+     *
+     */
+    protected File getParent(String childPath) {
+        return new File(childPath).getParentFile();
     }
 
     static {

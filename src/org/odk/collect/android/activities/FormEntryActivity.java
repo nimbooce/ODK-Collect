@@ -39,6 +39,7 @@ import org.odk.collect.android.logic.FormController;
 import org.odk.collect.android.logic.FormController.FailedConstraint;
 import org.odk.collect.android.preferences.AdminPreferencesActivity;
 import org.odk.collect.android.preferences.PreferencesActivity;
+import org.odk.collect.android.provider.FormsProviderAPI;
 import org.odk.collect.android.provider.FormsProviderAPI.FormsColumns;
 import org.odk.collect.android.provider.InstanceProviderAPI;
 import org.odk.collect.android.provider.InstanceProviderAPI.InstanceColumns;
@@ -120,8 +121,8 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 	private static final int SAVEPOINT_INTERVAL = 1;
 
 	// Defines for FormEntryActivity
-	private static final boolean EXIT = true;
-	private static final boolean DO_NOT_EXIT = false;
+    protected static final boolean EXIT = true;
+	protected static final boolean DO_NOT_EXIT = false;
 	private static final boolean EVALUATE_CONSTRAINTS = true;
 	private static final boolean DO_NOT_EVALUATE_CONSTRAINTS = false;
 
@@ -169,32 +170,32 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 
 	// Tracks whether we are autosaving
 	public static final String KEY_AUTO_SAVED = "autosaved";
-	
-	private static final int MENU_LANGUAGES = Menu.FIRST;
+
+	protected static final int MENU_LANGUAGES = Menu.FIRST;
 	private static final int MENU_HIERARCHY_VIEW = Menu.FIRST + 1;
 	private static final int MENU_SAVE = Menu.FIRST + 2;
-	private static final int MENU_PREFERENCES = Menu.FIRST + 3;
+    protected static final int MENU_PREFERENCES = Menu.FIRST + 3;
 
 	private static final int PROGRESS_DIALOG = 1;
-	private static final int SAVING_DIALOG = 2;
-	
+	protected static final int SAVING_DIALOG = 2;
+
 	private boolean mAutoSaved;
 
 	// Random ID
 	private static final int DELETE_REPEAT = 654321;
 
-	private String mFormPath;
+	protected String mFormPath;
 	private GestureDetector mGestureDetector;
 
 	private Animation mInAnimation;
 	private Animation mOutAnimation;
 	private View mStaleView = null;
 
-	private LinearLayout mQuestionHolder;
+	protected LinearLayout mQuestionHolder;
 	private View mCurrentView;
 
 	private AlertDialog mAlertDialog;
-	private ProgressDialog mProgressDialog;
+	protected ProgressDialog mProgressDialog;
 	private String mErrorMessage;
 
 	// used to limit forward/backward swipes to one per question
@@ -215,7 +216,7 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 		LEFT, RIGHT, FADE
 	}
 
-	private SharedPreferences mAdminPreferences;
+    protected SharedPreferences mAdminPreferences;
 
 	/** Called when the activity is first created. */
 	@Override
@@ -320,7 +321,7 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 					Log.w(t, "Reloading form and restoring state.");
 					// we need to launch the form loader to load the form
 					// controller...
-					mFormLoaderTask = new FormLoaderTask(instancePath,
+					mFormLoaderTask = getFormLoaderTask(instancePath,
 							startingXPath, waitingXPath);
 					Collect.getInstance().getActivityLogger()
 							.logAction(this, "formReloaded", mFormPath);
@@ -440,58 +441,7 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 							this.createErrorDialog("Bad URI: " + uri, EXIT);
 							return;
 						} else {
-							c.moveToFirst();
-							mFormPath = c.getString(c.getColumnIndex(FormsColumns.FORM_FILE_PATH));
-							// This is the fill-blank-form code path.
-							// See if there is a savepoint for this form that
-							// has never been
-							// explicitly saved
-							// by the user. If there is, open this savepoint
-							// (resume this filled-in
-							// form).
-							// Savepoints for forms that were explicitly saved
-							// will be recovered
-							// when that
-							// explicitly saved instance is edited via
-							// edit-saved-form.
-							final String filePrefix = mFormPath.substring(
-									mFormPath.lastIndexOf('/') + 1,
-									mFormPath.lastIndexOf('.'))
-									+ "_";
-							final String fileSuffix = ".xml.save";
-							File cacheDir = new File(Collect.CACHE_PATH);
-							File[] files = cacheDir.listFiles(new FileFilter() {
-								@Override
-								public boolean accept(File pathname) {
-									String name = pathname.getName();
-									return name.startsWith(filePrefix)
-											&& name.endsWith(fileSuffix);
-								}
-							});
-							// see if any of these savepoints are for a
-							// filled-in form that has never been
-							// explicitly saved by the user...
-							for (int i = 0; i < files.length; ++i) {
-								File candidate = files[i];
-								String instanceDirName = candidate.getName()
-										.substring(
-												0,
-												candidate.getName().length()
-														- fileSuffix.length());
-								File instanceDir = new File(
-										Collect.INSTANCES_PATH + File.separator
-												+ instanceDirName);
-								File instanceFile = new File(instanceDir,
-										instanceDirName + ".xml");
-								if (instanceDir.exists()
-										&& instanceDir.isDirectory()
-										&& !instanceFile.exists()) {
-									// yes! -- use this savepoint file
-									instancePath = instanceFile
-											.getAbsolutePath();
-									break;
-								}
-							}
+                            instancePath = findSavepointFileForForm(c);
 						}
 					} finally {
 						if (c != null) {
@@ -504,7 +454,7 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 					return;
 				}
 
-				mFormLoaderTask = new FormLoaderTask(instancePath, null, null);
+				mFormLoaderTask = getFormLoaderTask(instancePath, null, null);
 				Collect.getInstance().getActivityLogger()
 						.logAction(this, "formLoaded", mFormPath);
 				showDialog(PROGRESS_DIALOG);
@@ -514,13 +464,68 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 		}
 	}
 
+    protected String findSavepointFileForForm(Cursor formCursor) {
+        formCursor.moveToFirst();
+        mFormPath = formCursor.getString(formCursor.getColumnIndex(FormsColumns.FORM_FILE_PATH));
+        // This is the fill-blank-form code path.
+        // See if there is a savepoint for this form that
+        // has never been
+        // explicitly saved
+        // by the user. If there is, open this savepoint
+        // (resume this filled-in
+        // form).
+        // Savepoints for forms that were explicitly saved
+        // will be recovered
+        // when that
+        // explicitly saved instance is edited via
+        // edit-saved-form.
+        final String filePrefix = mFormPath.substring(
+                mFormPath.lastIndexOf('/') + 1,
+                mFormPath.lastIndexOf('.'))
+                + "_";
+        final String fileSuffix = ".xml.save";
+        File cacheDir = new File(Collect.CACHE_PATH);
+        File[] files = cacheDir.listFiles(new FileFilter() {
+            @Override
+            public boolean accept(File pathname) {
+                String name = pathname.getName();
+                return name.startsWith(filePrefix)
+                        && name.endsWith(fileSuffix);
+            }
+        });
+        // see if any of these savepoints are for a
+        // filled-in form that has never been
+        // explicitly saved by the user...
+        for (int i = 0; i < files.length; ++i) {
+            File candidate = files[i];
+            String instanceDirName = candidate.getName()
+                    .substring(
+                            0,
+                            candidate.getName().length()
+                                    - fileSuffix.length());
+            File instanceDir = new File(
+                    Collect.INSTANCES_PATH + File.separator
+                            + instanceDirName);
+            File instanceFile = new File(instanceDir,
+                    instanceDirName + ".xml");
+            if (instanceDir.exists()
+                    && instanceDir.isDirectory()
+                    && !instanceFile.exists()) {
+                // yes! -- use this savepoint file
+                return instanceFile
+                        .getAbsolutePath();
+            }
+        }
+        return null;
+    }
+
     /**
      * Create save-points asynchronously in order to not affect swiping performance
      * on larger forms.
      */
     private void nonblockingCreateSavePointData() {
         try {
-            SavePointTask savePointTask = new SavePointTask(this);
+            SavePointTask savePointTask = getSavePointTask(this);
             savePointTask.execute();
         } catch (Exception e) {
             Log.e(t, "Could not schedule SavePointTask. Perhaps a lot of swiping is taking place?");
@@ -972,7 +977,7 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 	 *            -- true if this results from advancing through the form
 	 * @return newly created View
 	 */
-	private View createView(int event, boolean advancingPage) {
+	protected View createView(int event, boolean advancingPage) {
 		FormController formController = Collect.getInstance()
 				.getFormController();
 		setTitle(getString(R.string.app_name) + " > "
@@ -1255,7 +1260,7 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 	 * a question, an ask repeat dialog, or the submit screen. Also saves
 	 * answers to the data model after checking constraints.
 	 */
-	private void showNextView() {
+	protected void showNextView() {
 		try {
             FormController formController = Collect.getInstance()
                     .getFormController();
@@ -1641,7 +1646,7 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 	/**
 	 * Creates and displays dialog with the given errorMsg.
 	 */
-	private void createErrorDialog(String errorMsg, final boolean shouldExit) {
+	protected void createErrorDialog(String errorMsg, final boolean shouldExit) {
 		Collect.getInstance()
 				.getActivityLogger()
 				.logInstanceAction(this, "createErrorDialog",
@@ -1736,7 +1741,7 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 	 * content provider is updated with the new name
 	 */
     // by default, save the current screen
-    private boolean saveDataToDisk(boolean exit, boolean complete, String updatedSaveName) {
+    protected boolean saveDataToDisk(boolean exit, boolean complete, String updatedSaveName) {
         return saveDataToDisk(exit, complete, updatedSaveName, true);
     }
 
@@ -1753,7 +1758,7 @@ public class FormEntryActivity extends Activity implements AnimationListener,
         }
 
         synchronized (saveDialogLock) {
-            mSaveToDiskTask = new SaveToDiskTask(getIntent().getData(), exit, complete,
+            mSaveToDiskTask = getSaveToDiskTask(getIntent().getData(), exit, complete,
                     updatedSaveName);
             mSaveToDiskTask.setFormSavedListener(this);
             mAutoSaved = true;
@@ -2615,7 +2620,7 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 	 * Returns the instance that was just filled out to the calling activity, if
 	 * requested.
 	 */
-	private void finishReturnInstance() {
+	protected void finishReturnInstance() {
 		FormController formController = Collect.getInstance()
 				.getFormController();
 		String action = getIntent().getAction();
@@ -2772,7 +2777,7 @@ public class FormEntryActivity extends Activity implements AnimationListener,
 		super.onStop();
 	}
 
-	private void sendSavedBroadcast() {
+	protected void sendSavedBroadcast() {
 		Intent i = new Intent();
 		i.setAction("org.odk.collect.android.FormSaved");
 		this.sendBroadcast(i);
@@ -2783,5 +2788,29 @@ public class FormEntryActivity extends Activity implements AnimationListener,
         if (errorMessage != null && errorMessage.trim().length() > 0) {
             Toast.makeText(this, getString(R.string.save_point_error, errorMessage), Toast.LENGTH_LONG).show();
         }
+    }
+
+    /**
+     * Return a {@link org.odk.collect.android.tasks.FormLoaderTask} for the given path.
+     * This method serves as an override point for subclasses wishing to provide a custom loading task.
+     */
+    protected FormLoaderTask getFormLoaderTask(String instancePath, String startingXPath, String waitingXPath) {
+        return new FormLoaderTask(instancePath, startingXPath, waitingXPath);
+    }
+
+    /**
+     * Return a {@link org.odk.collect.android.tasks.SaveToDiskTask} for the given uri.
+     * This method serves as an override point for subclasses wishing to provide a custom saving task.
+     */
+    protected SaveToDiskTask getSaveToDiskTask(Uri uri, Boolean saveAndExit, Boolean markCompleted, String updatedName) {
+        return new SaveToDiskTask(uri, saveAndExit, markCompleted, updatedName);
+    }
+
+    /**
+     * Return a {@link org.odk.collect.android.tasks.SavePointTask} for the given uri.
+     * This method serves as an override point for subclasses wishing to provide a custom saving task.
+     */
+    protected SavePointTask getSavePointTask(SavePointListener listener) {
+        return new SavePointTask(listener);
     }
 }

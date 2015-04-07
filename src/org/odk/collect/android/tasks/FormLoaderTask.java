@@ -23,6 +23,8 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -75,7 +77,7 @@ import au.com.bytecode.opencsv.CSVReader;
  * @author Yaw Anokwa (yanokwa@gmail.com)
  */
 public class FormLoaderTask extends AsyncTask<String, String, FormLoaderTask.FECWrapper> {
-  private final static String t = "FormLoaderTask";
+  protected final static String t = "FormLoaderTask";
   private static final String ITEMSETS_CSV = "itemsets.csv";
 
   private FormLoaderListener mStateListener;
@@ -128,14 +130,20 @@ public class FormLoaderTask extends AsyncTask<String, String, FormLoaderTask.FEC
   protected FECWrapper doInBackground(String... path) {
     FormEntryController fec = null;
     FormDef fd = null;
-    FileInputStream fis = null;
+    InputStream is = null;
     mErrorMsg = null;
 
     String formPath = path[0];
 
     File formXml = new File(formPath);
-    String formHash = FileUtils.getMd5Hash(formXml);
-    File formBin = new File(Collect.CACHE_PATH + File.separator + formHash + ".formdef");
+    File formBin = null;
+      try {
+          InputStream formXmlStream = getInputStreamForFile(formXml);
+          String formHash = FileUtils.getMd5Hash(formXmlStream);
+          formBin = new File(getCacheFilePathForHash(formHash));
+      } catch (FileNotFoundException e1) {
+          e1.printStackTrace();
+      }
 
     publishProgress(Collect.getInstance().getString(R.string.survey_loading_reading_form_message));
 
@@ -169,11 +177,12 @@ public class FormLoaderTask extends AsyncTask<String, String, FormLoaderTask.FEC
       // no binary, read from xml
       try {
         Log.i(t, "Attempting to load from: " + formXml.getAbsolutePath());
-        fis = new FileInputStream(formXml);
-        fd = XFormUtils.getFormFromInputStream(fis);
+        is = getInputStreamForFile(formXml);
+        fd = XFormUtils.getFormFromInputStream(is);
         if (fd == null) {
           mErrorMsg = "Error reading XForm file";
         } else {
+          Log.i(t, "serializeFormDef");
           serializeFormDef(fd, formPath);
         }
       } catch (FileNotFoundException e) {
@@ -186,7 +195,7 @@ public class FormLoaderTask extends AsyncTask<String, String, FormLoaderTask.FEC
         mErrorMsg = e.getMessage();
         e.printStackTrace();
       } finally {
-        IOUtils.closeQuietly(fis);
+        IOUtils.closeQuietly(is);
       }
     }
 
@@ -228,14 +237,14 @@ public class FormLoaderTask extends AsyncTask<String, String, FormLoaderTask.FEC
       if (mInstancePath != null) {
         File instance = new File(mInstancePath);
         File shadowInstance = SaveToDiskTask.savepointFile(instance);
-        if (shadowInstance.exists() && (shadowInstance.lastModified() > instance.lastModified())) {
+        if (exists(shadowInstance) && (shadowInstance.lastModified() > instance.lastModified())) {
           // the savepoint is newer than the saved value of the instance.
           // use it.
           usedSavepoint = true;
           instance = shadowInstance;
           Log.w(t, "Loading instance from shadow file: " + shadowInstance.getAbsolutePath());
         }
-        if (instance.exists()) {
+        if (exists(instance)) {
           // This order is important. Import data, then initialize.
           try {
             importData(instance, fec);
@@ -285,7 +294,7 @@ public class FormLoaderTask extends AsyncTask<String, String, FormLoaderTask.FEC
     // updated
     File csv = new File(formMediaDir.getAbsolutePath() + "/" + ITEMSETS_CSV);
     String csvmd5 = null;
-    if (csv.exists()) {
+    if (exists(csv)) {
       csvmd5 = FileUtils.getMd5Hash(csv);
       boolean readFile = false;
       ItemsetDbAdapter ida = new ItemsetDbAdapter();
@@ -335,7 +344,7 @@ public class FormLoaderTask extends AsyncTask<String, String, FormLoaderTask.FEC
         new RootTranslator("jr://video/", "jr://file/forms/" + formFileName + "-media/"));
 
     // clean up vars
-    fis = null;
+    is = null;
     fd = null;
     formBin = null;
     formXml = null;
@@ -425,7 +434,7 @@ public class FormLoaderTask extends AsyncTask<String, String, FormLoaderTask.FEC
     publishProgress(Collect.getInstance().getString(R.string.survey_loading_reading_data_message));
 
     // convert files into a byte array
-    byte[] fileBytes = FileUtils.getFileAsBytes(instanceFile);
+    byte[] fileBytes = getByteArrayForFile(instanceFile);
 
     // get the root of the saved and template instances
     TreeElement savedRoot = XFormParser.restoreDataModel(fileBytes, null).getRoot();
@@ -472,13 +481,13 @@ public class FormLoaderTask extends AsyncTask<String, String, FormLoaderTask.FEC
   public FormDef deserializeFormDef(File formDef) {
 
     // TODO: any way to remove reliance on jrsp?
-    FileInputStream fis = null;
+    InputStream is = null;
     FormDef fd = null;
     try {
       // create new form def
       fd = new FormDef();
-      fis = new FileInputStream(formDef);
-      DataInputStream dis = new DataInputStream(fis);
+      is = getInputStreamForFile(formDef);
+      DataInputStream dis = new DataInputStream(is);
 
       // read serialized formdef into new formdef
       fd.readExternal(dis, ExtUtil.defaultPrototypes());
@@ -510,14 +519,14 @@ public class FormLoaderTask extends AsyncTask<String, String, FormLoaderTask.FEC
   public void serializeFormDef(FormDef fd, String filepath) {
     // calculate unique md5 identifier
     String hash = FileUtils.getMd5Hash(new File(filepath));
-    File formDef = new File(Collect.CACHE_PATH + File.separator + hash + ".formdef");
+    File formDef = new File(getCacheFilePathForHash(hash));
 
     // formdef does not exist, create one.
-    if (!formDef.exists()) {
-      FileOutputStream fos;
+    if (!exists(formDef)) {
+      OutputStream os;
       try {
-        fos = new FileOutputStream(formDef);
-        DataOutputStream dos = new DataOutputStream(fos);
+        os = getOutputStreamForFile(formDef);
+        DataOutputStream dos = new DataOutputStream(os);
         fd.writeExternal(dos);
         dos.flush();
         dos.close();
@@ -645,4 +654,48 @@ public class FormLoaderTask extends AsyncTask<String, String, FormLoaderTask.FEC
             ida.close();
         }
     }
+
+
+    /**
+     * Returns the contents of the given File as a byte array.
+     * Serves as an override point for subclasses with custom
+     * file storage mechanisms.
+     */
+    protected byte[] getByteArrayForFile(File file) {
+        return FileUtils.getFileAsBytes(file);
+    }
+
+    /**
+     * Returns whether the specified File exists. This method
+     * serves as an override point for subclasses with custom
+     * file storage mechanisms.
+     */
+    protected boolean exists(File file) {
+        return file.exists();
+    }
+
+    /**
+     * Returns an InputStream for the given file.
+     * Serves as an override point for subclasses with custom
+     * file storage mechanisms.
+     * @throws FileNotFoundException
+     */
+    protected InputStream getInputStreamForFile(java.io.File file) throws FileNotFoundException {
+        return new FileInputStream(file);
+    }
+
+    /**
+     * Returns an OutputStream for the given file.
+     * Serves as an override point for subclasses with custom
+     * file storage mechanisms.
+     * @throws FileNotFoundException
+     */
+    protected OutputStream getOutputStreamForFile(java.io.File file) throws FileNotFoundException {
+        return new FileOutputStream(file);
+    }
+
+    protected String getCacheFilePathForHash(String hash) {
+        return Collect.CACHE_PATH + File.separator + hash + ".formdef";
+    }
+
 }
